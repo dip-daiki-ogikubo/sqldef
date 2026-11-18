@@ -913,6 +913,7 @@ type DDL struct {
 	Function      *Function
 	Type          *Type
 	Domain        *Domain
+	SequenceDef   *Sequence
 	Comment       *Comment
 	Extension     *Extension
 	Schema        *Schema
@@ -957,6 +958,7 @@ const (
 	CreateView
 	CreateSchema
 	CreateDomain
+	CreateSequence
 	GrantPrivilege
 	RevokePrivilege
 	DropIndex

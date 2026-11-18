@@ -1704,6 +1704,13 @@ create_statement:
     }
   }
 /* For PostgreSQL */
+| CREATE SEQUENCE if_not_exists_opt object_name sequence_opt
+  {
+    $$ = &DDL{
+      Action: CreateSequence,
+      SequenceDef: $5,
+    }
+  }
 | CREATE TYPE object_name AS column_type
   {
     $$ = &DDL{
@@ -4646,6 +4653,11 @@ sequence_opt:
 | sequence_opt CYCLE
   {
     $1.Cycle = NewBoolVal(true)
+    $$ = $1
+  }
+| sequence_opt AS column_type
+  {
+    $1.Type = $3.Type
     $$ = $1
   }
 | sequence_opt OWNED BY NONE

@@ -72,6 +72,7 @@ type GeneratorConfig struct {
 	ManageExtensions *[]ManageObjectRule
 	ManagePrivileges *[]ManageObjectRule // manage.privilege rules: which grantees' privileges are managed and whether REVOKE is allowed
 	ManageFunctions  *[]ManageObjectRule // manage.function rules: which functions are managed and whether DROP is allowed
+	ManageSequences  *[]ManageObjectRule // manage.sequence rules: which sequences are managed and whether DROP is allowed
 	ManageOwner      *ManageOwnerConfig  // manage.owner: whose ownership is managed; nil when omitted
 
 	// MySQL-specific: value of lower_case_table_names server variable.
@@ -495,6 +496,9 @@ func MergeGeneratorConfig(base, override GeneratorConfig) GeneratorConfig {
 	if override.ManageFunctions != nil {
 		result.ManageFunctions = override.ManageFunctions
 	}
+	if override.ManageSequences != nil {
+		result.ManageSequences = override.ManageSequences
+	}
 	if override.ManagePrivileges != nil {
 		result.ManagePrivileges = override.ManagePrivileges
 	}
@@ -546,6 +550,7 @@ func parseGeneratorConfigFromBytes(buf []byte, defaults GeneratorConfig) Generat
 	manageExtensions := parseManageRules(config.Manage, "extension")
 	manageFunctions := parseManageRules(config.Manage, "function")
 	managePrivileges := parseManageRules(config.Manage, "privilege")
+	manageSequences := parseManageRules(config.Manage, "sequence")
 
 	var manageOwner *ManageOwnerConfig
 	if raw, ok := config.Manage["owner"]; ok {
@@ -610,6 +615,7 @@ func parseGeneratorConfigFromBytes(buf []byte, defaults GeneratorConfig) Generat
 		LegacyIgnoreQuotes:      legacyIgnoreQuotes,
 		ManageExtensions:        manageExtensions,
 		ManageFunctions:         manageFunctions,
+		ManageSequences:         manageSequences,
 		ManagePrivileges:        managePrivileges,
 		ManageOwner:             manageOwner,
 	}
@@ -639,6 +645,7 @@ var manageImplementedKeys = map[string]bool{
 	"function":  true,
 	"owner":     true,
 	"privilege": true,
+	"sequence":  true,
 }
 
 func parseManageRules(manage map[string]yaml.RawMessage, want string) *[]ManageObjectRule {
@@ -653,7 +660,7 @@ func parseManageRules(manage map[string]yaml.RawMessage, want string) *[]ManageO
 				log.Fatalf("manage.%s is not a recognized manage: key (typo?)", key)
 			}
 			if !manageImplementedKeys[key] && want == "extension" { // warn once, not per implemented key
-				slog.Warn("manage key is not yet supported and will be ignored; only manage.extension, manage.function, manage.owner and manage.privilege are currently implemented", "key", key)
+				slog.Warn("manage key is not yet supported and will be ignored; only manage.extension, manage.function, manage.owner, manage.privilege and manage.sequence are currently implemented", "key", key)
 			}
 			continue
 		}

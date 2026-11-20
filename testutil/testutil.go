@@ -47,6 +47,7 @@ type TestCase struct {
 		Extension *[]database.ManageObjectRule `yaml:"extension"`
 		Function  *[]database.ManageObjectRule `yaml:"function"`
 		Privilege *[]database.ManageObjectRule `yaml:"privilege"`
+		Sequence  *[]database.ManageObjectRule `yaml:"sequence"`
 		Owner     any                          `yaml:"owner"` // parsed into ManageOwner by ReadTests
 	} `yaml:"manage"`
 	ManageOwner *database.ManageOwnerConfig `yaml:"-"`
@@ -223,6 +224,7 @@ func RunTest(t *testing.T, db database.Database, test TestCase, mode schema.Gene
 		ManageExtensions:        test.Manage.Extension,
 		ManageFunctions:         test.Manage.Function,
 		ManagePrivileges:        test.Manage.Privilege,
+		ManageSequences:         test.Manage.Sequence,
 		ManageOwner:             test.ManageOwner,
 		EnableDrop:              *test.EnableDrop,
 		CreateIndexConcurrently: test.Config.CreateIndexConcurrently,

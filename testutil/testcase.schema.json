@@ -65,7 +65,7 @@
         },
         "manage": {
           "type": "object",
-          "description": "manage: config block (see object-management.md). Only manage.extension, manage.function, manage.owner and manage.privilege are implemented.",
+          "description": "manage: config block (see object-management.md). Only manage.extension, manage.function, manage.owner, manage.privilege and manage.sequence are implemented.",
           "properties": {
             "extension": {
               "type": "array",
@@ -99,6 +99,25 @@
                   "drop": {
                     "type": "boolean",
                     "description": "Whether DROP FUNCTION is allowed for functions matched by this rule (independent of enable_drop).",
+                    "default": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "sequence": {
+              "type": "array",
+              "description": "Rules for which sequences to manage. Only sequences matching a rule's target are managed; unmatched sequences are left untouched, as are their comments. An empty array manages all sequences with drop disabled by default.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "description": "Regexp pattern matched against the sequence name, anchored with ^...$. Empty matches all."
+                  },
+                  "drop": {
+                    "type": "boolean",
+                    "description": "Whether DROP SEQUENCE is allowed for sequences matched by this rule (independent of enable_drop).",
                     "default": false
                   }
                 },

@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=../../testutil/testcase.schema.json
+# Tests for manage.sequence (see object-management.md): which sequences are managed, and
+# whether DROP SEQUENCE is allowed per rule. Every case states both up and down on
+# purpose: omitting them makes a case idempotency-only, which does not compare the
+# generated DDL at all.
+
+ManageSequenceCreatesMatched:
+  manage:
+    sequence:
+      - target: app_.*
+  current: ""
+  desired: |
+    CREATE SEQUENCE app_seq;
+  up: |
+    CREATE SEQUENCE app_seq;
+  down: |
+    -- Skipped: DROP SEQUENCE "public"."app_seq";
+
+ManageSequenceUnmatchedUntouched:
+  # external_seq matches no rule: it is absent from the desired schema yet must not be
+  # dropped, and it takes no part in the diff. Its comment goes with it -- a comment
+  # belongs to the object it describes, and comparing this one would emit
+  # COMMENT ON SEQUENCE ... IS NULL for a sequence sqldef does not manage.
+  manage:
+    sequence:
+      - target: app_.*
+  current: |
+    CREATE SEQUENCE app_seq;
+    CREATE SEQUENCE external_seq;
+    COMMENT ON SEQUENCE external_seq IS 'not ours';
+  desired: |
+    CREATE SEQUENCE app_seq;
+  up: ""
+  down: ""
+
+ManageSequenceObsoleteDropForbidden:
+  # A managed sequence absent from desired is a drop candidate; with drop:false (the
+  # default) the DROP is skipped rather than executed, so the reverse migration produces
+  # nothing -- the sequence was never removed.
+  manage:
+    sequence:
+      - target: app_.*
+  current: |
+    CREATE SEQUENCE app_keep;
+    CREATE SEQUENCE app_stale;
+  desired: |
+    CREATE SEQUENCE app_keep;
+  up: |
+    -- Skipped: DROP SEQUENCE "public"."app_stale";
+  down: ""
+
+ManageSequenceObsoleteDropAllowed:
+  # With drop:true the DROP executes even though enable_drop is false.
+  enable_drop: false
+  manage:
+    sequence:
+      - target: app_.*
+        drop: true
+  current: |
+    CREATE SEQUENCE app_keep;
+    CREATE SEQUENCE app_stale;
+  desired: |
+    CREATE SEQUENCE app_keep;
+  up: |
+    DROP SEQUENCE "public"."app_stale";
+  down: |
+    CREATE SEQUENCE app_stale;

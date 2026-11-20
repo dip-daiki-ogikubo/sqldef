@@ -2409,7 +2409,7 @@ func normalizeCommentObject(comment *parser.Comment, mode GeneratorMode, default
 
 	var needsSchema bool
 	switch comment.ObjectType {
-	case "OBJECT_TABLE", "OBJECT_INDEX", "OBJECT_VIEW", "OBJECT_TYPE", "OBJECT_DOMAIN", "OBJECT_FUNCTION":
+	case "OBJECT_TABLE", "OBJECT_INDEX", "OBJECT_VIEW", "OBJECT_TYPE", "OBJECT_DOMAIN", "OBJECT_FUNCTION", "OBJECT_SEQUENCE":
 		// These types need [schema, name]
 		needsSchema = len(comment.Object) == 1
 	case "OBJECT_COLUMN":

@@ -1019,6 +1019,40 @@ comment_statement:
       },
     }
   }
+| COMMENT_KEYWORD ON SEQUENCE table_name IS STRING
+  {
+    var obj []Ident
+    if !$4.Schema.IsEmpty() {
+      obj = []Ident{$4.Schema, $4.Name}
+    } else {
+      obj = []Ident{$4.Name}
+    }
+    $$ = &DDL{
+      Action: CommentOn,
+      Comment: &Comment{
+        ObjectType: "OBJECT_SEQUENCE",
+        Object: obj,
+        Comment: $6,
+      },
+    }
+  }
+| COMMENT_KEYWORD ON SEQUENCE table_name IS NULL
+  {
+    var obj []Ident
+    if !$4.Schema.IsEmpty() {
+      obj = []Ident{$4.Schema, $4.Name}
+    } else {
+      obj = []Ident{$4.Name}
+    }
+    $$ = &DDL{
+      Action: CommentOn,
+      Comment: &Comment{
+        ObjectType: "OBJECT_SEQUENCE",
+        Object: obj,
+        Comment: "",
+      },
+    }
+  }
 | COMMENT_KEYWORD ON TRIGGER sql_id ON table_name IS STRING
   {
     // Build Object as []Ident: [trigger, schema, table] or [trigger, table]

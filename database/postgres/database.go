@@ -814,7 +814,8 @@ func (d *PostgresDatabase) sequences() ([]string, error) {
 		       s.seqmin,
 		       s.seqmax,
 		       s.seqcache,
-		       s.seqcycle
+		       s.seqcycle,
+		       obj_description(c.oid, 'pg_class') AS sequence_comment
 		  FROM pg_class c
 		  JOIN pg_namespace n ON n.oid = c.relnamespace
 		  JOIN pg_sequence s ON s.seqrelid = c.oid
@@ -841,7 +842,8 @@ func (d *PostgresDatabase) sequences() ([]string, error) {
 		var schema, name, dataType string
 		var start, increment, min, max, cache int64
 		var cycle bool
-		if err := rows.Scan(&schema, &name, &dataType, &start, &increment, &min, &max, &cache, &cycle); err != nil {
+		var comment sql.NullString
+		if err := rows.Scan(&schema, &name, &dataType, &start, &increment, &min, &max, &cache, &cycle, &comment); err != nil {
 			return nil, err
 		}
 		if d.config.TargetSchema != nil && !slices.Contains(d.config.TargetSchema, schema) {
@@ -865,6 +867,13 @@ func (d *PostgresDatabase) sequences() ([]string, error) {
 		}
 		ddl.WriteString(";")
 		ddls = append(ddls, ddl.String())
+
+		if comment.Valid {
+			ddls = append(ddls, fmt.Sprintf(
+				"COMMENT ON SEQUENCE %s.%s IS %s;",
+				d.quoteIdentifierIfNeeded(schema), d.quoteIdentifierIfNeeded(name), schemaLib.StringConstant(comment.String),
+			))
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -193,6 +193,12 @@ func (d *PostgresDatabase) ExportDDLs() (string, error) {
 	}
 	ddls = append(ddls, domainDDLs...)
 
+	sequenceDDLs, err := d.sequences()
+	if err != nil {
+		return "", err
+	}
+	ddls = append(ddls, sequenceDDLs...)
+
 	functionDDLs, err := d.functions()
 	if err != nil {
 		return "", err
@@ -786,6 +792,84 @@ func (d *PostgresDatabase) types() ([]string, error) {
 			))
 		}
 	}
+	return ddls, nil
+}
+
+// sequences returns the CREATE SEQUENCE statements of the sequences that stand on their
+// own. A sequence a column owns is left out on purpose: serial and IDENTITY columns each
+// create one behind the scenes, and that sequence is already part of the column's own
+// definition, so emitting it here as well would declare the same object twice.
+//
+// Ownership is read from pg_depend, the same place getColumnsForTables reads it from, with
+// the direction reversed: there the question is whether the sequence behind a column's
+// default belongs to that column, here it is whether any column at all claims this
+// sequence. deptype 'a' covers serial, 'i' covers IDENTITY.
+func (d *PostgresDatabase) sequences() ([]string, error) {
+	rows, err := d.db.Query(`
+		SELECT n.nspname AS sequence_schema,
+		       c.relname AS sequence_name,
+		       format_type(s.seqtypid, NULL) AS data_type,
+		       s.seqstart,
+		       s.seqincrement,
+		       s.seqmin,
+		       s.seqmax,
+		       s.seqcache,
+		       s.seqcycle
+		  FROM pg_class c
+		  JOIN pg_namespace n ON n.oid = c.relnamespace
+		  JOIN pg_sequence s ON s.seqrelid = c.oid
+		 WHERE c.relkind = 'S'
+		   AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+		   AND n.nspname NOT LIKE 'pg_toast%'
+		   AND n.nspname NOT LIKE 'pg_temp%'
+		   AND NOT EXISTS (
+		     SELECT 1 FROM pg_depend dep
+		      WHERE dep.classid = 'pg_class'::regclass
+		        AND dep.objid = c.oid
+		        AND dep.refclassid = 'pg_class'::regclass
+		        AND dep.deptype IN ('a', 'i')
+		   )
+		 ORDER BY n.nspname, c.relname
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ddls []string
+	for rows.Next() {
+		var schema, name, dataType string
+		var start, increment, min, max, cache int64
+		var cycle bool
+		if err := rows.Scan(&schema, &name, &dataType, &start, &increment, &min, &max, &cache, &cycle); err != nil {
+			return nil, err
+		}
+		if d.config.TargetSchema != nil && !slices.Contains(d.config.TargetSchema, schema) {
+			continue
+		}
+
+		var ddl strings.Builder
+		ddl.WriteString(fmt.Sprintf("CREATE SEQUENCE %s.%s", d.quoteIdentifierIfNeeded(schema), d.quoteIdentifierIfNeeded(name)))
+		// Every option is written out, as pg_dump does: a value left out would read as the
+		// default for the type, which is not what the sequence necessarily has.
+		ddl.WriteString(fmt.Sprintf(" AS %s", dataType))
+		ddl.WriteString(fmt.Sprintf(" START WITH %d", start))
+		ddl.WriteString(fmt.Sprintf(" INCREMENT BY %d", increment))
+		ddl.WriteString(fmt.Sprintf(" MINVALUE %d", min))
+		ddl.WriteString(fmt.Sprintf(" MAXVALUE %d", max))
+		ddl.WriteString(fmt.Sprintf(" CACHE %d", cache))
+		if cycle {
+			ddl.WriteString(" CYCLE")
+		} else {
+			ddl.WriteString(" NO CYCLE")
+		}
+		ddl.WriteString(";")
+		ddls = append(ddls, ddl.String())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return ddls, nil
 }
 

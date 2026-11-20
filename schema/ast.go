@@ -513,6 +513,18 @@ type Identity struct {
 	notForReplication bool
 }
 
+// CreateSequence is a sequence declared in its own right with CREATE SEQUENCE. The
+// options of an identity column are a Sequence instead, which has no name of its own.
+type CreateSequence struct {
+	name      QualifiedName
+	statement string
+	// ifNotExists records whether the declaration said IF NOT EXISTS. It does not affect
+	// the diff -- an existing sequence is found through name either way -- but it is part
+	// of the statement that gets replayed when the sequence is missing.
+	ifNotExists bool
+	options     *Sequence
+}
+
 type Sequence struct {
 	Name        string
 	IfNotExists bool
@@ -609,6 +621,17 @@ type Schema struct {
 
 func (c *CreateTable) Statement() string {
 	return c.statement
+}
+
+func (c *CreateSequence) Statement() string {
+	return c.statement
+}
+
+// ownedByColumn reports whether the declaration ties the sequence to a column with
+// OWNED BY. Such a sequence must be replayed after its owning table exists; OWNED BY NONE
+// ties it to nothing and does not.
+func (c *CreateSequence) ownedByColumn() bool {
+	return c.options != nil && c.options.OwnedBy != "" && !strings.EqualFold(c.options.OwnedBy, "NONE")
 }
 
 func (c *CreateIndex) Statement() string {

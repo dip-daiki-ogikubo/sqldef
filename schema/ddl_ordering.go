@@ -174,6 +174,11 @@ func topologicalSort[T any](items []T, dependencies map[string][]string, getID f
 func SortTablesByDependencies(ddls []DDL, defaultSchema string, mode GeneratorMode, legacyIgnoreQuotes bool, mysqlLowerCaseTableNames int) []DDL {
 	var createExtensions []*Extension
 	var createSchemas []*Schema
+	// createSequences are the sequences a column can reference in its DEFAULT nextval(),
+	// so they are replayed right after the schemas and before any table. A sequence that
+	// declares OWNED BY is the other way round -- it needs its owning column to exist
+	// already -- and stays in otherDDLs, after the tables.
+	var createSequences []*CreateSequence
 	var createTypes []*Type
 	var createDomains []*Domain
 	var createFunctions []*Function
@@ -186,6 +191,8 @@ func SortTablesByDependencies(ddls []DDL, defaultSchema string, mode GeneratorMo
 			createExtensions = append(createExtensions, ext)
 		} else if schema, ok := ddl.(*Schema); ok {
 			createSchemas = append(createSchemas, schema)
+		} else if seq, ok := ddl.(*CreateSequence); ok && !seq.ownedByColumn() {
+			createSequences = append(createSequences, seq)
 		} else if typ, ok := ddl.(*Type); ok {
 			createTypes = append(createTypes, typ)
 		} else if domain, ok := ddl.(*Domain); ok {
@@ -398,6 +405,9 @@ func SortTablesByDependencies(ddls []DDL, defaultSchema string, mode GeneratorMo
 	}
 	for _, schema := range createSchemas {
 		result = append(result, schema)
+	}
+	for _, sequence := range createSequences {
+		result = append(result, sequence)
 	}
 	result = append(result, sorted...)
 	result = append(result, otherDDLs...)

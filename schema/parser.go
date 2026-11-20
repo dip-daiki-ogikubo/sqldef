@@ -315,6 +315,13 @@ func parseDDL(mode GeneratorMode, ddl string, stmt parser.Statement, defaultSche
 				collation:    cmp.Or(stmt.Domain.Collation, stmt.Domain.DataType.Collate),
 				constraints:  constraints,
 			}, nil
+		} else if stmt.Action == parser.CreateSequence {
+			return &CreateSequence{
+				name:        normalizeQualifiedObjectName(mode, stmt.SequenceDef.Name, defaultSchema),
+				statement:   ddl,
+				ifNotExists: stmt.SequenceDef.IfNotExists,
+				options:     parseSequenceOptions(stmt.SequenceDef),
+			}, nil
 		} else if stmt.Action == parser.CommentOn {
 			// Store raw AST and DDL; normalization is handled by the generator
 			return &Comment{
@@ -980,42 +987,49 @@ func parseSridDefinition(opt *parser.SridDefinition) *SridDefinition {
 }
 
 func parseIdentitySequence(opt *parser.IdentityOpt) *Sequence {
-	if opt == nil || opt.Sequence == nil {
+	if opt == nil {
+		return nil
+	}
+	return parseSequenceOptions(opt.Sequence)
+}
+
+// parseSequenceOptions converts the sequence options that CREATE SEQUENCE and an identity
+// column's IDENTITY (...) clause have in common. Name is left unset on purpose: only
+// CREATE SEQUENCE names a sequence, and CreateSequence carries that name.
+func parseSequenceOptions(seqDef *parser.Sequence) *Sequence {
+	if seqDef == nil {
 		return nil
 	}
 	seq := &Sequence{
-		// Name is left empty on purpose: the sequence options of an identity column have
-		// no name of their own. Only CREATE SEQUENCE names a sequence, and that name is
-		// kept on the statement, not in these options.
-		IfNotExists: opt.Sequence.IfNotExists,
-		Type:        opt.Sequence.Type,
-		OwnedBy:     opt.Sequence.OwnedBy,
+		IfNotExists: seqDef.IfNotExists,
+		Type:        seqDef.Type,
+		OwnedBy:     seqDef.OwnedBy,
 	}
-	if opt.Sequence.IncrementBy != nil {
-		seq.IncrementBy = &parseValue(opt.Sequence.IncrementBy).intVal
+	if seqDef.IncrementBy != nil {
+		seq.IncrementBy = &parseValue(seqDef.IncrementBy).intVal
 	}
-	if opt.Sequence.MinValue != nil {
-		seq.MinValue = &parseValue(opt.Sequence.MinValue).intVal
+	if seqDef.MinValue != nil {
+		seq.MinValue = &parseValue(seqDef.MinValue).intVal
 	}
-	if opt.Sequence.MaxValue != nil {
-		seq.MaxValue = &parseValue(opt.Sequence.MaxValue).intVal
+	if seqDef.MaxValue != nil {
+		seq.MaxValue = &parseValue(seqDef.MaxValue).intVal
 	}
-	if opt.Sequence.StartWith != nil {
-		seq.StartWith = &parseValue(opt.Sequence.StartWith).intVal
+	if seqDef.StartWith != nil {
+		seq.StartWith = &parseValue(seqDef.StartWith).intVal
 	}
-	if opt.Sequence.Cache != nil {
-		seq.Cache = &parseValue(opt.Sequence.Cache).intVal
+	if seqDef.Cache != nil {
+		seq.Cache = &parseValue(seqDef.Cache).intVal
 	}
-	if opt.Sequence.NoMinValue != nil {
+	if seqDef.NoMinValue != nil {
 		seq.NoMinValue = true
 	}
-	if opt.Sequence.NoMaxValue != nil {
+	if seqDef.NoMaxValue != nil {
 		seq.NoMaxValue = true
 	}
-	if opt.Sequence.Cycle != nil {
+	if seqDef.Cycle != nil {
 		seq.Cycle = true
 	}
-	if opt.Sequence.NoCycle != nil {
+	if seqDef.NoCycle != nil {
 		seq.NoCycle = true
 	}
 	return seq

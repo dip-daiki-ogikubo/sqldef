@@ -197,6 +197,7 @@ func GenerateIdempotentDDLs(mode GeneratorMode, sqlParser database.Parser, desir
 	desiredDDLs = FilterPrivileges(desiredDDLs, config)
 	desiredDDLs = FilterExtensions(desiredDDLs, config)
 	desiredDDLs = FilterFunctions(desiredDDLs, config, defaultSchema)
+	desiredDDLs = FilterSequences(desiredDDLs, config, defaultSchema)
 
 	desiredDDLs = SortTablesByDependencies(desiredDDLs, defaultSchema, mode, config.LegacyIgnoreQuotes, config.MysqlLowerCaseTableNames)
 
@@ -208,6 +209,7 @@ func GenerateIdempotentDDLs(mode GeneratorMode, sqlParser database.Parser, desir
 	currentDDLs = FilterPrivileges(currentDDLs, config)
 	currentDDLs = FilterExtensions(currentDDLs, config)
 	currentDDLs = FilterFunctions(currentDDLs, config, defaultSchema)
+	currentDDLs = FilterSequences(currentDDLs, config, defaultSchema)
 
 	currentDDLs = SortTablesByDependencies(currentDDLs, defaultSchema, mode, config.LegacyIgnoreQuotes, config.MysqlLowerCaseTableNames)
 
@@ -1001,6 +1003,11 @@ func heldBack(config database.GeneratorConfig, s statement) bool {
 	case dropExtensionStatement:
 		if config.ManageExtensions != nil && !ruleAllowsDrop(*config.ManageExtensions, s.name.Name) {
 			return true
+		}
+	case dropObjectStatement:
+		// A rule names the sequence alone, whatever its schema, as manage.function does.
+		if s.kind == "SEQUENCE" && config.ManageSequences != nil {
+			return !ruleAllowsDrop(*config.ManageSequences, s.name.Name.Name)
 		}
 	}
 	return !config.EnableDrop
@@ -8301,6 +8308,59 @@ func FilterFunctions(ddls []DDL, config database.GeneratorConfig, defaultSchema 
 // isManagedFunction reports whether a function is managed by manage.function: it
 // must live in the default schema (an empty schema means the default) and its
 // name must match a rule.
+// FilterSequences drops the CREATE SEQUENCE and COMMENT ON SEQUENCE DDLs of sequences
+// manage.sequence does not manage, on both the desired and the current side, so an
+// unmanaged sequence takes no part in the diff (allow-list model). With manage.sequence
+// unset every sequence is managed, which is the behavior without this setting.
+//
+// A rule's target is matched against the sequence name alone and manage.sequence is scoped
+// to the default schema, as manage.function is: a rule carrying no schema field means the
+// default schema in the manage: RFC. Sequences in other schemas are left alone, and
+// schema-qualified rules are not implemented yet.
+//
+// The comment of an unmanaged sequence is dropped here as well. A comment belongs to the
+// object it describes, and keeping it would compare a comment whose sequence is out of
+// scope -- which emits COMMENT ON SEQUENCE ... IS NULL, a statement that carries no DROP
+// for enable_drop to hold back and whose wording cannot be restored from a declaration
+// that was never made.
+func FilterSequences(ddls []DDL, config database.GeneratorConfig, defaultSchema string) []DDL {
+	if config.ManageSequences == nil {
+		return ddls
+	}
+
+	filtered := []DDL{}
+	for _, ddl := range ddls {
+		switch stmt := ddl.(type) {
+		case *CreateSequence:
+			if !isManagedSequence(config, defaultSchema, stmt.name.Schema.Name, stmt.name.Name.Name) {
+				slog.Debug("sequence is not managed by any manage.sequence rule; excluding it", "schema", stmt.name.Schema.Name, "sequence", stmt.name.Name.Name)
+				continue
+			}
+		case *Comment:
+			if stmt.comment.ObjectType == "OBJECT_SEQUENCE" && len(stmt.comment.Object) > 0 {
+				schema := ""
+				if len(stmt.comment.Object) >= 2 {
+					schema = stmt.comment.Object[len(stmt.comment.Object)-2].Name
+				}
+				name := stmt.comment.Object[len(stmt.comment.Object)-1].Name
+				if !isManagedSequence(config, defaultSchema, schema, name) {
+					continue
+				}
+			}
+		}
+		filtered = append(filtered, ddl)
+	}
+	return filtered
+}
+
+func isManagedSequence(config database.GeneratorConfig, defaultSchema, schema, name string) bool {
+	if schema != "" && schema != defaultSchema {
+		return false
+	}
+	_, matched := matchManageObjectRule(*config.ManageSequences, name)
+	return matched
+}
+
 func isManagedFunction(config database.GeneratorConfig, defaultSchema, schema, name string) bool {
 	if schema != "" && schema != defaultSchema {
 		return false

@@ -984,7 +984,9 @@ func parseIdentitySequence(opt *parser.IdentityOpt) *Sequence {
 		return nil
 	}
 	seq := &Sequence{
-		Name:        opt.Sequence.Name,
+		// Name is left empty on purpose: the sequence options of an identity column have
+		// no name of their own. Only CREATE SEQUENCE names a sequence, and that name is
+		// kept on the statement, not in these options.
 		IfNotExists: opt.Sequence.IfNotExists,
 		Type:        opt.Sequence.Type,
 		OwnedBy:     opt.Sequence.OwnedBy,

@@ -1193,7 +1193,9 @@ func (col *ColumnDefinition) Format(buf *nodeBuffer) {
 }
 
 type Sequence struct {
-	Name        string
+	// Name is the sequence's own name, set by CREATE SEQUENCE. It stays empty for the
+	// sequence options of an identity column, which have no name of their own.
+	Name        ObjectName
 	IfNotExists bool
 	Type        string
 

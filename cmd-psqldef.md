@@ -575,6 +575,7 @@ $ psqldef -U postgres dbname --apply \
 | `manage.extension` | array | List of `{target, drop}` rules for which extensions to manage; see [Managing Extensions](#managing-extensions). |
 | `manage.function` | array | List of `{target, drop}` rules for which functions to manage; see [Managing Functions](#managing-functions). |
 | `manage.privilege` | array | List of `{target, drop}` rules for which grantees' privileges to manage; see [Managing Privileges](#managing-privileges). |
+| `manage.sequence` | array | List of `{target, drop}` rules for which sequences to manage; see [Managing Sequences](#managing-sequences). |
 | `manage.owner` | bool or array | `true`, `false`, or a list of role names whose ownership to manage; see [Managing Owners](#managing-owners). |
 
 ### Managing Extensions
@@ -596,7 +597,29 @@ Rules are evaluated in order; the first match wins. `target` is a regular expres
 
 If `manage.extension` is omitted, all extensions are managed as before. An empty `manage.extension:` section manages all extensions but disables drop for all of them by default.
 
-`manage.extension` is part of a broader `manage:` configuration block for controlling which objects psqldef manages across all object types (tables, views, indexes, ...); see [object-management.md](object-management.md) for the full design. Besides `manage.extension`, `manage.function`, `manage.owner` and `manage.privilege`, other `manage:` keys are not implemented yet and are ignored with a warning.
+`manage.extension` is part of a broader `manage:` configuration block for controlling which objects psqldef manages across all object types (tables, views, indexes, ...); see [object-management.md](object-management.md) for the full design. Besides `manage.extension`, `manage.function`, `manage.owner`, `manage.privilege` and `manage.sequence`, other `manage:` keys are not implemented yet and are ignored with a warning.
+
+### Managing Sequences
+
+psqldef manages the sequences a schema file declares with `CREATE SEQUENCE`. The sequence a `serial` or `IDENTITY` column creates is not one of them: it belongs to that column's definition, so declaring it separately would define the same object twice.
+
+A sequence is replayed before the tables, because a column's `DEFAULT nextval()` needs it to exist already. A sequence declaring `OWNED BY` goes after them instead, since it needs its owning column.
+
+`manage.sequence` restricts sequence management to those matching a rule, leaving everything else untouched. This is useful when some sequences are maintained outside of psqldef:
+
+```yaml
+manage:
+  sequence:
+    - target: 'app_.*'
+    - target: 'tmp_.*'
+      drop: true  # allows DROP SEQUENCE for tmp_* only
+```
+
+A rule's `target` is a regexp anchored with `^...$` and matched against the sequence name; the first matching rule wins. A sequence no rule matches is excluded from the diff entirely, on both the desired and the current side, so it is neither created, altered nor dropped. The comment of an unmanaged sequence is excluded with it: a comment belongs to the object it describes.
+
+`drop: true` allows `DROP SEQUENCE` for the sequences a rule matches, independently of `--enable-drop`. Without it the drop is reported as skipped.
+
+Changing the options of a sequence that already exists is not implemented yet: the options of an existing sequence are not compared, and no `ALTER SEQUENCE` is produced for them.
 
 ### Managing Functions
 

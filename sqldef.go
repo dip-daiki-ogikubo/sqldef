@@ -107,6 +107,7 @@ func Run(generatorMode schema.GeneratorMode, db database.Database, sqlParser dat
 			ddls = schema.FilterPrivileges(ddls, options.Config)
 			ddls = schema.FilterExtensions(ddls, options.Config)
 			ddls = schema.FilterFunctions(ddls, options.Config, defaultSchema)
+			ddls = schema.FilterSequences(ddls, options.Config, defaultSchema)
 			for i, ddl := range ddls {
 				if i > 0 {
 					fmt.Println()

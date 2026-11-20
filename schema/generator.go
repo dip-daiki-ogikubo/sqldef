@@ -123,6 +123,9 @@ type Generator struct {
 	desiredDomains []*Domain
 	currentDomains []*Domain
 
+	desiredSequences []*CreateSequence
+	currentSequences []*CreateSequence
+
 	desiredPartitionOfs []*CreatePartitionOf
 	currentPartitionOfs []*CreatePartitionOf
 
@@ -240,6 +243,8 @@ func GenerateIdempotentDDLs(mode GeneratorMode, sqlParser database.Parser, desir
 		currentTypes:        aggregated.Types,
 		desiredDomains:      desiredAggregated.Domains,
 		currentDomains:      aggregated.Domains,
+		desiredSequences:    desiredAggregated.Sequences,
+		currentSequences:    aggregated.Sequences,
 		desiredPartitionOfs: desiredAggregated.PartitionOfs,
 		currentPartitionOfs: aggregated.PartitionOfs,
 		desiredComments:     desiredAggregated.Comments,
@@ -470,6 +475,12 @@ func (g *Generator) generateDDLs(desiredDDLs []DDL) ([]string, error) {
 				return nil, err
 			}
 			interDDLs = append(interDDLs, domainDDLs...)
+		case *CreateSequence:
+			sequenceDDLs, err := g.generateDDLsForCreateSequence(desired)
+			if err != nil {
+				return nil, err
+			}
+			interDDLs = append(interDDLs, sequenceDDLs...)
 		case *Comment:
 			commentDDLs, err := g.generateDDLsForComment(desired)
 			if err != nil {
@@ -820,6 +831,14 @@ func (g *Generator) generateDDLs(desiredDDLs []DDL) ([]string, error) {
 			continue
 		}
 		ddls = append(ddls, dropObjectStatement{d: g.dialect, kind: "DOMAIN", name: currentDomain.name})
+	}
+
+	// Clean up obsoleted sequences
+	for _, currentSequence := range g.currentSequences {
+		if g.findSequenceByName(g.desiredSequences, currentSequence.name) != nil {
+			continue
+		}
+		ddls = append(ddls, dropObjectStatement{d: g.dialect, kind: "SEQUENCE", name: currentSequence.name})
 	}
 
 	// Clean up obsoleted extensions
@@ -3410,6 +3429,23 @@ func (g *Generator) generateDDLsForCreateDomain(desired *Domain) ([]statement, e
 	return ddls, nil
 }
 
+// generateDDLsForCreateSequence emits the declaration of a sequence the current schema does
+// not have. A sequence that is already there is left alone: changing its options needs
+// ALTER SEQUENCE, which is not implemented yet, so the options of an existing sequence are
+// not compared and no statement is produced for them.
+func (g *Generator) generateDDLsForCreateSequence(desired *CreateSequence) ([]statement, error) {
+	var ddls []statement
+
+	if g.findSequenceByName(g.currentSequences, desired.name) == nil {
+		ddls = append(ddls, inputStatement{statement: desired.statement})
+	}
+	if g.findSequenceByName(g.desiredSequences, desired.name) == nil {
+		g.desiredSequences = append(g.desiredSequences, desired)
+	}
+
+	return ddls, nil
+}
+
 func (g *Generator) generateAlterDomainDDLs(current, desired *Domain) ([]statement, error) {
 	var ddls []statement
 	alter := func(action alterDomainAction) {
@@ -3884,6 +3920,7 @@ type AggregatedSchema struct {
 	Functions    []*Function
 	Types        []*Type
 	Domains      []*Domain
+	Sequences    []*CreateSequence
 	Comments     []*Comment
 	Extensions   []*Extension
 	Schemas      []*Schema
@@ -4549,6 +4586,7 @@ func aggregateDDLsToSchema(ddls []DDL, mode GeneratorMode, defaultSchema string,
 		Events:       []*Event{},
 		Types:        []*Type{},
 		Domains:      []*Domain{},
+		Sequences:    []*CreateSequence{},
 		Comments:     []*Comment{},
 		Extensions:   []*Extension{},
 		Schemas:      []*Schema{},
@@ -4653,6 +4691,8 @@ func aggregateDDLsToSchema(ddls []DDL, mode GeneratorMode, defaultSchema string,
 			aggregated.Types = append(aggregated.Types, stmt)
 		case *Domain:
 			aggregated.Domains = append(aggregated.Domains, stmt)
+		case *CreateSequence:
+			aggregated.Sequences = append(aggregated.Sequences, stmt)
 		case *Comment:
 			aggregated.Comments = append(aggregated.Comments, stmt)
 		case *Extension:
@@ -5837,6 +5877,16 @@ func (g *Generator) findDomainByName(domains []*Domain, name QualifiedName) *Dom
 	for _, domain := range domains {
 		if g.qualifiedNamesEqual(domain.name, name) {
 			return domain
+		}
+	}
+	return nil
+}
+
+// findSequenceByName finds a sequence using quote-aware comparison including schema
+func (g *Generator) findSequenceByName(sequences []*CreateSequence, name QualifiedName) *CreateSequence {
+	for _, sequence := range sequences {
+		if g.qualifiedNamesEqual(sequence.name, name) {
+			return sequence
 		}
 	}
 	return nil

@@ -1704,11 +1704,21 @@ create_statement:
     }
   }
 /* For PostgreSQL */
-| CREATE SEQUENCE if_not_exists_opt object_name sequence_opt
+| CREATE SEQUENCE object_name sequence_opt
   {
+    $4.Name = $3
     $$ = &DDL{
       Action: CreateSequence,
-      SequenceDef: $5,
+      SequenceDef: $4,
+    }
+  }
+| CREATE SEQUENCE IF NOT EXISTS object_name sequence_opt
+  {
+    $7.Name = $6
+    $7.IfNotExists = true
+    $$ = &DDL{
+      Action: CreateSequence,
+      SequenceDef: $7,
     }
   }
 | CREATE TYPE object_name AS column_type

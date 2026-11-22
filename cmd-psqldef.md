@@ -619,7 +619,9 @@ A rule's `target` is a regexp anchored with `^...$` and matched against the sequ
 
 `drop: true` allows `DROP SEQUENCE` for the sequences a rule matches, independently of `--enable-drop`. Without it the drop is reported as skipped.
 
-Changing the options of a sequence that already exists is not implemented yet: the options of an existing sequence are not compared, and no `ALTER SEQUENCE` is produced for them.
+The options of a sequence that already exists are brought in line with the declaration through a single `ALTER SEQUENCE`, since PostgreSQL takes them all in one statement. Only the options a declaration states are compared: `CREATE SEQUENCE s;` against a sequence someone gave a `MAXVALUE` to says nothing about that `MAXVALUE`, so it is left as it is. A schema file produced by `--export` states them all.
+
+`NO MINVALUE` and `NO MAXVALUE` are compared against the bounds PostgreSQL gives a sequence declared without them, which depend on the type and on the sign of the increment: counting up, 1 and the type's maximum; counting down, the type's minimum and -1.
 
 ### Managing Functions
 

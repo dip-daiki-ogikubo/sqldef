@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"maps"
+	"math"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -3436,14 +3437,17 @@ func (g *Generator) generateDDLsForCreateDomain(desired *Domain) ([]statement, e
 	return ddls, nil
 }
 
-// generateDDLsForCreateSequence emits the declaration of a sequence the current schema does
-// not have. A sequence that is already there is left alone: changing its options needs
-// ALTER SEQUENCE, which is not implemented yet, so the options of an existing sequence are
-// not compared and no statement is produced for them.
+// generateDDLsForCreateSequence emits the declaration of a sequence the current schema
+// does not have, or an ALTER SEQUENCE bringing the options of one it already has in line
+// with the declaration.
 func (g *Generator) generateDDLsForCreateSequence(desired *CreateSequence) ([]statement, error) {
 	var ddls []statement
 
-	if g.findSequenceByName(g.currentSequences, desired.name) == nil {
+	if currentSequence := g.findSequenceByName(g.currentSequences, desired.name); currentSequence != nil {
+		if options := sequenceOptionChanges(currentSequence.options, desired.options); len(options) > 0 {
+			ddls = append(ddls, alterSequenceOptionsStatement{d: g.dialect, sequence: desired.name, options: options})
+		}
+	} else {
 		ddls = append(ddls, inputStatement{statement: desired.statement})
 	}
 	if g.findSequenceByName(g.desiredSequences, desired.name) == nil {
@@ -3451,6 +3455,59 @@ func (g *Generator) generateDDLsForCreateSequence(desired *CreateSequence) ([]st
 	}
 
 	return ddls, nil
+}
+
+// sequenceOptionChanges returns the options an ALTER SEQUENCE needs to bring current in
+// line with desired, in the order CREATE SEQUENCE writes them.
+//
+// Only options the declaration states are compared. A declaration that leaves one out is
+// not read as asking for its default: "CREATE SEQUENCE s;" against a sequence someone gave
+// a MAXVALUE to says nothing about that MAXVALUE, and resetting it would undo a decision
+// the schema file never spoke about. The options a sequence was created with are always
+// written out on export, so a schema file produced by --export does state them all.
+func sequenceOptionChanges(current, desired *Sequence) []string {
+	if current == nil || desired == nil {
+		return nil
+	}
+	var options []string
+
+	if desired.Type != "" && !strings.EqualFold(desired.Type, current.Type) {
+		options = append(options, "AS "+desired.Type)
+	}
+	if desired.StartWith != nil && (current.StartWith == nil || *desired.StartWith != *current.StartWith) {
+		options = append(options, fmt.Sprintf("START WITH %d", *desired.StartWith))
+	}
+	if desired.IncrementBy != nil && (current.IncrementBy == nil || *desired.IncrementBy != *current.IncrementBy) {
+		options = append(options, fmt.Sprintf("INCREMENT BY %d", *desired.IncrementBy))
+	}
+	defaultMin, defaultMax := sequenceDefaultBounds(current, desired)
+	if desired.NoMinValue {
+		// The catalog always reports a MINVALUE, so NO MINVALUE has to be compared against
+		// the value PostgreSQL gives a sequence declared without one. Comparing it against
+		// "has a MINVALUE at all" emitted NO MINVALUE on every run.
+		if current.MinValue != nil && *current.MinValue != defaultMin {
+			options = append(options, "NO MINVALUE")
+		}
+	} else if desired.MinValue != nil && (current.MinValue == nil || *desired.MinValue != *current.MinValue) {
+		options = append(options, fmt.Sprintf("MINVALUE %d", *desired.MinValue))
+	}
+	if desired.NoMaxValue {
+		if current.MaxValue != nil && *current.MaxValue != defaultMax {
+			options = append(options, "NO MAXVALUE")
+		}
+	} else if desired.MaxValue != nil && (current.MaxValue == nil || *desired.MaxValue != *current.MaxValue) {
+		options = append(options, fmt.Sprintf("MAXVALUE %d", *desired.MaxValue))
+	}
+	if desired.Cache != nil && (current.Cache == nil || *desired.Cache != *current.Cache) {
+		options = append(options, fmt.Sprintf("CACHE %d", *desired.Cache))
+	}
+	if desired.Cycle && !current.Cycle {
+		options = append(options, "CYCLE")
+	} else if desired.NoCycle && current.Cycle {
+		options = append(options, "NO CYCLE")
+	}
+
+	return options
 }
 
 func (g *Generator) generateAlterDomainDDLs(current, desired *Domain) ([]statement, error) {
@@ -8351,6 +8408,39 @@ func FilterSequences(ddls []DDL, config database.GeneratorConfig, defaultSchema 
 		filtered = append(filtered, ddl)
 	}
 	return filtered
+}
+
+// sequenceDefaultBounds returns the MINVALUE and MAXVALUE PostgreSQL gives a sequence
+// whose declaration states neither, which depend on the sequence's type and on the sign of
+// its increment: counting up it starts at 1 and stops at the type's maximum, counting down
+// it starts at -1 and stops at the type's minimum.
+// https://www.postgresql.org/docs/current/sql-createsequence.html
+func sequenceDefaultBounds(current, desired *Sequence) (int, int) {
+	typ := current.Type
+	if desired.Type != "" {
+		typ = desired.Type
+	}
+	var low, high int
+	switch strings.ToLower(typ) {
+	case "smallint", "int2":
+		low, high = math.MinInt16, math.MaxInt16
+	case "integer", "int", "int4":
+		low, high = math.MinInt32, math.MaxInt32
+	default: // bigint, and whatever else PostgreSQL would have rejected
+		low, high = math.MinInt64, math.MaxInt64
+	}
+
+	increment := 1
+	if current.IncrementBy != nil {
+		increment = *current.IncrementBy
+	}
+	if desired.IncrementBy != nil {
+		increment = *desired.IncrementBy
+	}
+	if increment < 0 {
+		return low, -1
+	}
+	return 1, high
 }
 
 func isManagedSequence(config database.GeneratorConfig, defaultSchema, schema, name string) bool {

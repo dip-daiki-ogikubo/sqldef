@@ -362,6 +362,21 @@ func (s addEnumValueStatement) Render() string {
 	return fmt.Sprintf("ALTER TYPE %s ADD VALUE %s", s.d.escapeQualifiedName(s.typeName), StringConstant(s.value))
 }
 
+// alterSequenceOptionsStatement changes the options of a sequence declared with
+// CREATE SEQUENCE. PostgreSQL takes them all in one statement, so unlike ALTER DOMAIN
+// this carries a list rather than a single action. None of them loses data: a MINVALUE or
+// MAXVALUE that excludes the sequence's current value is refused by PostgreSQL itself.
+type alterSequenceOptionsStatement struct {
+	statementDefaults
+	d        dialect
+	sequence QualifiedName
+	options  []string
+}
+
+func (s alterSequenceOptionsStatement) Render() string {
+	return fmt.Sprintf("ALTER SEQUENCE %s %s", s.d.escapeQualifiedName(s.sequence), strings.Join(s.options, " "))
+}
+
 // alterDomainStatement changes one thing about a PostgreSQL domain.
 type alterDomainStatement struct {
 	statementDefaults
